@@ -12,6 +12,7 @@ dependencies = [
     "recipe-scrapers>=15.0",
     "notion-client>=2.2",
     "requests>=2.31",
+    "flask>=3.0",
 ]
 
 [project.optional-dependencies]

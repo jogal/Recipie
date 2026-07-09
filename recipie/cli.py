@@ -14,7 +14,7 @@ import sys
 
 from notion_client import Client
 
-from . import notion_sync, scraper
+from . import notion_sync, scraper, service
 from .config import Config, load_config, save_config
 
 PAGE_ID_RE = re.compile(r"([0-9a-f]{32})|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
@@ -83,41 +83,37 @@ def print_recipe(recipe: scraper.Recipe, category: str | None, mains: list[str])
 
 
 def cmd_add(args: argparse.Namespace) -> None:
-    config = load_config()
-
-    print(f"🔍 レシピを取得中: {args.url}")
-    recipe = scraper.scrape_recipe(args.url)
-
-    category = args.category or notion_sync.guess_category(recipe)
-    if category and category not in notion_sync.CATEGORIES:
-        print(f"⚠️ カテゴリー「{category}」はレシピ集の選択肢にありません(そのまま追加します)。")
-
     mains = [m.strip() for m in (args.main or "").split(",") if m.strip()]
 
     if args.dry_run:
+        print(f"🔍 レシピを取得中: {args.url}")
+        recipe = scraper.scrape_recipe(args.url)
+        category = args.category or notion_sync.guess_category(recipe)
         print_recipe(recipe, category, mains)
         print("(--dry-run のため、Notionには追加していません)")
         return
 
-    if not config.notion_token or not config.database_id:
-        raise SystemExit("先に `recipie init --database <レシピ集のURL>` でセットアップしてください。")
+    print(f"🔍 レシピを取得中: {args.url}")
+    try:
+        result = service.add_recipe_from_url(
+            args.url,
+            category=args.category or None,
+            main_ingredients=mains or None,
+            force=args.force,
+        )
+    except service.ConfigError as e:
+        raise SystemExit(str(e))
 
-    notion = Client(auth=config.notion_token)
-
-    existing = notion_sync.find_existing_page(notion, config.database_id, recipe.url)
-    if existing and not args.force:
+    print_recipe(result.recipe, result.category, result.main_ingredients)
+    if result.duplicate:
         raise SystemExit("⚠️ このレシピは追加済みです。もう一度追加するには --force を付けてください。")
+    print(f"✅ レシピ集に追加しました: {result.page_url}")
 
-    if not mains:
-        # DBに登録済みの「メイン材料」の選択肢に一致する材料を自動で付ける
-        _, known_options = notion_sync.get_database_info(notion, config.database_id)
-        mains = notion_sync.match_main_ingredients(recipe, known_options)
 
-    print_recipe(recipe, category, mains)
-    page_url = notion_sync.add_recipe(
-        notion, config.database_id, recipe, category=category, main_ingredients=mains
-    )
-    print(f"✅ レシピ集に追加しました: {page_url}")
+def cmd_serve(args: argparse.Namespace) -> None:
+    from . import webapp
+
+    webapp.serve(host=args.host, port=args.port)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--dry-run", action="store_true", help="抽出結果の表示のみでNotionには追加しない")
     p_add.add_argument("--force", action="store_true", help="追加済みでも再追加する")
     p_add.set_defaults(func=cmd_add)
+
+    p_serve = sub.add_parser("serve", help="URLを貼るだけで追加できるWebフォームを起動する")
+    p_serve.add_argument("--host", default="127.0.0.1", help="待ち受けホスト(既定: 127.0.0.1)")
+    p_serve.add_argument("--port", type=int, default=8000, help="待ち受けポート(既定: 8000)")
+    p_serve.set_defaults(func=cmd_serve)
 
     return parser
 

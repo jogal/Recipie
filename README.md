@@ -1,10 +1,11 @@
 # 🍳 Recipie
 
 ブラウザで見ているレシピページのURLを渡すだけで、レシピを自動で抽出して
-Notionの **「レシピ集」データベース** に見やすいページとして追加するCLIツールです。
+Notionの **「レシピ集」データベース** に見やすいページとして追加するツールです。
+**URLを貼って送信するだけのWebフォーム**と、コマンドラインの両方で使えます。
 
-```
-recipie add https://www.sirogohan.com/recipe/butadon/
+```bash
+recipie serve   # → ブラウザでフォームを開き、URLを貼るだけ
 ```
 
 ## 追加されるページの形式
@@ -54,7 +55,29 @@ recipie init --database <「レシピ集」データベースのURL>
 (まだレシピ集が無い環境では `recipie init --parent <親ページのURL>` で
 同じスキーマのデータベースを新規作成できます)
 
-## 使い方
+## 使い方その1：Webフォーム（おすすめ）
+
+URLを貼って送信するだけでレシピ集に追加できる画面を起動します。
+
+```bash
+recipie serve
+```
+
+ブラウザで <http://127.0.0.1:8000> を開き、レシピのURLを貼って「レシピ集に追加」を
+押すだけです。カテゴリーとメイン材料は自動で判定され、追加後は作成された
+Notionページへのリンクと抽出結果のプレビューが表示されます。
+同じURLのレシピには「追加済み」と出て、必要なら再追加もできます。
+
+- **スマホから使う**: 同じWi-Fi内で `recipie serve --host 0.0.0.0` として起動すれば、
+  スマホのブラウザから `http://<PCのIPアドレス>:8000` で開けます。
+- **ブックマークレット（ワンタップ追加）**: 下記をブックマーク登録しておくと、
+  レシピページを見ながらタップするだけでフォームにURLが入った状態で開きます。
+
+  ```
+  javascript:location.href='http://127.0.0.1:8000/?url='+encodeURIComponent(location.href)
+  ```
+
+## 使い方その2：コマンドライン
 
 ```bash
 # レシピを追加(ブラウザのアドレスバーからURLをコピーして渡す)
@@ -69,18 +92,6 @@ recipie add https://example.com/recipe/12345 --dry-run
 
 同じURLのレシピは重複追加されません(`--force` で再追加できます)。
 
-## スマホ・ブラウザからの利用
-
-- **ブックマークレット**: ブラウザのブックマークに以下を登録すると、
-  レシピページを見ながらワンクリックでコマンドをコピーできます。
-
-  ```
-  javascript:navigator.clipboard.writeText('recipie add '+location.href).then(()=>alert('コマンドをコピーしました'))
-  ```
-
-- **iOSショートカット等**: 共有シートからURLを受け取り、SSH経由で
-  `recipie add <URL>` を実行するショートカットを作れば、スマホからも追加できます。
-
 ## 開発
 
 ```bash
@@ -92,5 +103,7 @@ pytest
 |---|---|
 | `recipie/scraper.py` | レシピページからの情報抽出 |
 | `recipie/notion_sync.py` | 「レシピ集」のプロパティ/ページ本文の生成、カテゴリー推定、材料名の正規化 |
-| `recipie/cli.py` | `init` / `add` コマンド |
+| `recipie/service.py` | URL→レシピ集追加の共通処理（CLI・Webフォーム両方が利用） |
+| `recipie/webapp.py` | `serve` で起動するWebフォーム |
+| `recipie/cli.py` | `init` / `add` / `serve` コマンド |
 | `recipie/config.py` | トークン等の設定の読み書き |
