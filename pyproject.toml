@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recipie"
+version = "0.1.0"
+description = "ブラウザで見ているレシピを、Notionのレシピ帳に見やすく追加するCLIツール"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "recipe-scrapers>=15.0",
+    "notion-client>=2.2",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+recipie = "recipie.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["recipie*"]
