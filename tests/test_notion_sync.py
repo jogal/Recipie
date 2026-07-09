@@ -4,6 +4,9 @@ from recipie.cli import extract_page_id
 from recipie.notion_sync import (
     MAX_TEXT_LENGTH,
     add_recipe,
+    extract_ingredient_name,
+    guess_category,
+    match_main_ingredients,
     recipe_to_blocks,
     recipe_to_properties,
 )
@@ -21,7 +24,7 @@ def make_recipe(**overrides) -> Recipe:
         total_time_minutes=20,
         yields="2人分",
         ingredient_groups=[
-            IngredientGroup(purpose=None, ingredients=["豚肉 250g", "玉ねぎ 1/2個"]),
+            IngredientGroup(purpose=None, ingredients=["豚バラ肉(薄切り) 250g", "玉ねぎ 1/2個"]),
             IngredientGroup(purpose="タレ", ingredients=["醤油 大さじ2"]),
         ],
         instructions=["切る。", "炒める。", "盛る。"],
@@ -31,29 +34,60 @@ def make_recipe(**overrides) -> Recipe:
     return Recipe(**defaults)
 
 
-def test_properties():
-    props = recipe_to_properties(make_recipe(), extra_tags=["和食", "豚肉"])
-    assert props["名前"]["title"][0]["text"]["content"] == "テストレシピ"
-    assert props["URL"]["url"] == "https://example.com/recipe/1"
-    assert props["調理時間(分)"]["number"] == 20
-    tag_names = [t["name"] for t in props["タグ"]["multi_select"]]
-    assert tag_names == ["和食", "豚肉", "時短"]  # 重複は除去される
+def test_properties_match_recipe_db_schema():
+    props = recipe_to_properties(
+        make_recipe(), category="メインディッシュ", main_ingredients=["豚バラ肉", "玉ねぎ"]
+    )
+    assert props["レシピ名"]["title"][0]["text"]["content"] == "テストレシピ"
+    assert props["情報源"]["rich_text"][0]["text"]["link"]["url"] == "https://example.com/recipe/1"
+    assert props["カテゴリー"]["select"]["name"] == "メインディッシュ"
+    assert [m["name"] for m in props["メイン材料"]["multi_select"]] == ["豚バラ肉", "玉ねぎ"]
+    assert props["調理時間"]["number"] == 20
+    assert props["画像"]["url"] == "https://example.com/img.jpg"
+    assert props["作成済"]["checkbox"] is False
 
 
 def test_long_text_is_truncated():
     props = recipe_to_properties(make_recipe(title="あ" * 3000))
-    assert len(props["名前"]["title"][0]["text"]["content"]) == MAX_TEXT_LENGTH
+    assert len(props["レシピ名"]["title"][0]["text"]["content"]) == MAX_TEXT_LENGTH
 
 
 def test_blocks_structure():
     blocks = recipe_to_blocks(make_recipe())
-    assert blocks[0]["type"] == "callout"  # 先頭は元レシピへのリンク
-    to_dos = [b for b in blocks if b["type"] == "to_do"]
+    assert blocks[0]["type"] == "paragraph"  # 先頭は説明文
+    headings2 = [b["heading_2"]["rich_text"][0]["text"]["content"] for b in blocks if b["type"] == "heading_2"]
+    assert headings2 == ["材料（2人分）", "作り方"]
+    bullets = [b for b in blocks if b["type"] == "bulleted_list_item"]
     steps = [b for b in blocks if b["type"] == "numbered_list_item"]
-    headings = [b for b in blocks if b["type"] == "heading_3"]
-    assert len(to_dos) == 3
+    headings3 = [b for b in blocks if b["type"] == "heading_3"]
+    assert len(bullets) == 3
     assert len(steps) == 3
-    assert headings[0]["heading_3"]["rich_text"][0]["text"]["content"] == "タレ"
+    assert headings3[0]["heading_3"]["rich_text"][0]["text"]["content"] == "タレ"
+
+
+def test_guess_category():
+    assert guess_category(make_recipe(title="夏野菜のキーマカレー")) == "メインディッシュ"
+    assert guess_category(make_recipe(title="10分浅漬け", keywords=[])) == "サイドディッシュ"
+    assert guess_category(make_recipe(title="豚汁", keywords=[])) == "スープ・汁物"
+    assert guess_category(make_recipe(title="名前から不明", keywords=["サラダ"])) == "サラダ"
+    assert guess_category(make_recipe(title="名前から不明", keywords=[])) is None
+    # 「フライパン」の「パン」に誤反応しない
+    assert guess_category(make_recipe(title="フライパンで簡単！豚丼", keywords=[])) == "メインディッシュ"
+
+
+def test_extract_ingredient_name():
+    assert extract_ingredient_name("豚バラ肉(薄切り) 250g") == "豚バラ肉"
+    assert extract_ingredient_name("玉ねぎ 1/2個") == "玉ねぎ"
+    assert extract_ingredient_name("醤油 大さじ2") == "醤油"
+    assert extract_ingredient_name("塩少々") == "塩"
+    assert extract_ingredient_name("・にんにく 1かけ") == "にんにく"
+    assert extract_ingredient_name("【A】みりん 大さじ2") == "みりん"
+
+
+def test_match_main_ingredients_only_known_options():
+    recipe = make_recipe()
+    known = ["豚バラ肉", "玉ねぎ", "鶏もも", "味噌"]
+    assert match_main_ingredients(recipe, known) == ["豚バラ肉", "玉ねぎ"]
 
 
 def test_add_recipe_chunks_blocks():
